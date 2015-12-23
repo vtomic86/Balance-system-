@@ -1,0 +1,100 @@
+
+/*  Progetto Balance system - Di Lecce Vito Michele
+*/
+#include <Wire.h>
+#include <Servo.h>
+
+const int MPU = 0x68; // I2C address of the MPU-6050
+int16_t AcX,AcY,AcZ,Tmp,GyX,GyY,GyZ;
+float outServo_min = 89.22;
+float outServo_max = 95.22;
+int in_min = -16384;
+int in_max = 16384;
+int AcY_req = 0;
+float angle;
+float K = 1;
+float Kp = 1;
+float Ki = 0.6;
+float Kd = 0;
+float pidTerm = 0;
+float error = 0;
+float last_error = 0;
+float last_time = 0;
+float integrated_error = 0;
+float AcY_PID = 0;
+float PosServo_Y;
+float t;
+float lastmillis = 0;
+//Servo ServoMot_Y;
+
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin();
+  Wire.beginTransmission(MPU);
+  Wire.write(0x6B);  // PWR_MGMT_1 register
+  Wire.write(0);     // set to zero (wakes up the MPU-6050)
+  Wire.endTransmission(true);
+  pinMode(9, OUTPUT); 
+}
+void loop() {
+  float i = 0;
+  while (i <= 10 ) {
+    Wire.beginTransmission(MPU);
+    Wire.write(0x3B);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU, 14, true);
+    AcX=Wire.read()<<8|Wire
+    .read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)     
+    AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+    AcZ=Wire.read()<<8|Wire.read();  // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+    Tmp=Wire.read()<<8|Wire.read();  // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+    GyX=Wire.read()<<8|Wire.read();  // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
+    GyY=Wire.read()<<8|Wire.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
+    GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+    if (AcY < -16384)  AcY = -16384;
+    if (AcY > 16384)   AcY = 16384;
+    Serial.print("AcY : "); Serial.println(AcY);
+    Serial.print("GyY : "); Serial.println(GyY);
+    float angle = updateFilter(angle);
+    float PosServo_Y = updatePid(AcY_req, AcY, in_min, in_max, outServo_min, outServo_max); 
+    ServoMot_Y(PosServo_Y);
+    Serial.print("angle : "); Serial.println(angle);
+    Serial.print("Asse Y : "); Serial.println(PosServo_Y);
+    Serial.println("Giroscopio");
+    Serial.print("Asse Y : "); Serial.println(PosServo_Y);
+    Serial.println(" ");
+    i = millis();
+    i = i - lastmillis;
+  }
+  lastmillis = i;
+}
+float updateFilter(float angle) {
+  float gyro = GyX / 131;
+  float dt = (millis() - last_time) / 1000;
+  float Y_acc = (AcY / 16384)* 90;
+  return float ((0.98)*(angle + gyro * dt) + (0.02)*(Y_acc));
+  Serial.print("Y_acc : "); Serial.println(Y_acc);
+}
+
+float updatePid(int AcY_req, float AcY, float in_min, float in_max, float out_min, float out_max) {
+  error = AcY_req - AcY;
+  float delta_time = (millis() - last_time) / 1000;
+  integrated_error += error * delta_time;
+  pidTerm = K * ((Kp * error) + (Ki * integrated_error) + (Kd * (error - last_error) / delta_time));
+  last_error = error;
+  last_time = millis();
+  AcY_PID = AcY_req - pidTerm;
+  return (float)((AcY_PID - in_min) * (out_max - out_min) / (float)(in_max - in_min) + out_min);
+  Serial.print("errror : "); Serial.println(error);
+  Serial.print("integratederrror : "); Serial.println(integrated_error);
+  Serial.print("AcY_PID : "); Serial.println(AcY_PID);
+}
+void ServoMot_Y(float pos) {
+  t = (560 + (pos * (1840 / 180)));
+  Serial.print("pos : "); Serial.println(pos);
+  digitalWrite(9, HIGH);
+  delayMicroseconds(t); //
+  digitalWrite(9, LOW);
+  delayMicroseconds(20000 - t);
+}
