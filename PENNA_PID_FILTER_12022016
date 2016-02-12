@@ -1,0 +1,228 @@
+
+/*  Progetto Balance system - Di Lecce Vito Michele
+ */
+#include <Wire.h>
+#include <Servo.h>
+
+const int MPU = 0x68; // I2C address of the MPU-6050
+float AcX,AcY,AcZ,Tmp,GyX,GyY,GyZ;
+float outServo_min = 89.22;
+float outServo_max = 95.22;
+int servo_pin = 9;
+int in_min = -16384;
+int in_max = 16384;
+int angle_req = 0;
+float alpha = 0;
+float angle = 0;
+float K = 1;
+float Kp = 1.3;
+float Ki = 0.4;
+float Kd = 0;
+float pidTerm = 0;
+float error = 0;
+float last_error = 0;
+float time = 0;
+float last_time = 0;
+float delta_time;
+float integrated_error = 0;
+float angle_PID = 0;
+float PosServo_Y;
+float t;
+float lastmillis = 0;
+
+
+
+//float    x_accel = 0;
+float    y_accel = 0;
+//float    z_accel = 0;
+//float    x_gyro = 0;
+float    y_gyro = 0;
+//float    z_gyro = 0;
+
+//float    base_x_accel;
+float    base_y_accel;
+//float    base_z_accel;
+
+//float    base_x_gyro;
+float    base_y_gyro;
+//float    base_z_gyro;
+
+// for the compensator fileter 
+
+//float    gyro_angle_x;
+float    gyro_angle_y;
+//float    gyro_angle_z;
+
+//float    acc_anlge_x;
+float    acc_anlge_y;
+//float    acc_anlge_z;
+
+//float    last_angle_x = 0;
+float    last_angle_y = 0;
+//float    last_angle_z = 0;
+
+void calibrate_sensors() {
+  int      num_readings = 10;
+  //float    x_accel = 0;
+  float    y_accel = 0;
+  //float    z_accel = 0;
+  //float    x_gyro = 0;
+  float    y_gyro = 0;
+  //float    z_gyro = 0;
+
+  Serial.println("Starting Calibration");
+
+  Wire.beginTransmission(MPU);
+  Wire.write(0x3B);
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU, 14, true);
+  AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)     
+  AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  AcZ=Wire.read()<<8|Wire.read();  // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  Tmp=Wire.read()<<8|Wire.read();  // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+  GyX=Wire.read()<<8|Wire.read();  // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
+  GyY=Wire.read()<<8|Wire.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
+  GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+
+  // Read and average the raw values from the IMU
+  for (int i = 0; i < num_readings; i++) {
+
+    //x_accel += AcX;
+    y_accel += AcY;
+    //z_accel += AcZ;
+    //x_gyro += GyX;
+    y_gyro += GyY;
+    //z_gyro += GyY;
+    delay(100);
+  }
+  //x_accel /= num_readings;
+  y_accel /= num_readings;
+  //z_accel /= num_readings;
+  //x_gyro /= num_readings;
+  y_gyro /= num_readings;
+  //z_gyro /= num_readings;
+
+  // Store the raw calibration values globally
+  //base_x_accel = x_accel;
+  base_y_accel = y_accel;
+  //base_z_accel = z_accel;
+  //base_x_gyro = x_gyro;
+  base_y_gyro = y_gyro;
+  //base_z_gyro = z_gyro;
+  Serial.print("base_y_gyro : "); 
+  Serial.println(base_y_gyro);
+  Serial.println("Finishing Calibration");
+}
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin();
+  Wire.beginTransmission(MPU);
+  Wire.write(0x6B);  // PWR_MGMT_1 register
+  Wire.write(0);     // set to zero (wakes up the MPU-6050)
+  Wire.endTransmission(true);
+  pinMode(servo_pin, OUTPUT);  
+  calibrate_sensors(); 
+}
+void loop() {
+  int i = 0;
+  while (i <= 10 ) {
+    Wire.beginTransmission(MPU);
+    Wire.write(0x3B);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU, 14, true);
+    AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)     
+    AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+    AcZ=Wire.read()<<8|Wire.read();  // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+    Tmp=Wire.read()<<8|Wire.read();  // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+    GyX=Wire.read()<<8|Wire.read();  // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
+    GyY=Wire.read()<<8|Wire.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
+    GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+    if (AcY < -16384)  AcY = -16384;
+    if (AcY > 16384)   AcY = 16384;
+    Serial.print("AcX : "); 
+    Serial.println(AcX);
+    Serial.print("AcY : "); 
+    Serial.println(AcY);
+    Serial.print("AcZ : "); 
+    Serial.println(AcZ);
+    Serial.print("Tmp : "); 
+    Serial.println(Tmp);
+    Serial.print("GyX : "); 
+    Serial.println(GyX);
+    Serial.print("GyY : "); 
+    Serial.println(GyY);
+    Serial.print("GyZ : "); 
+    Serial.println(GyZ);
+    time = millis();
+    delta_time = (time - last_time) / 1000;
+
+    //manage row value of Y_GYRO (angle in degree)
+    int FS_SEL = 131;
+    y_gyro = (GyY - base_y_gyro) / FS_SEL;
+    gyro_angle_y = (y_gyro * delta_time + last_angle_y);
+    Serial.print("gyro_angle_y : "); 
+    Serial.println(gyro_angle_y);
+    //manage row value of Y_ACC (angle in degree)
+
+    float RADIANS_TO_DEGREES = 90;
+    float G_CONVERT = 16384;
+    y_accel = (AcY - base_y_accel);
+    y_accel = (AcY);
+    acc_anlge_y = (y_accel / G_CONVERT) * RADIANS_TO_DEGREES;
+    Serial.print("acc_anlge_y : "); 
+    Serial.println(acc_anlge_y);
+    // compensator filered angle 
+    float angle = ((alpha) * gyro_angle_y + (1 - alpha)*(acc_anlge_y));
+    last_angle_y = angle;
+
+
+    //Serial.print("gyro : "); Serial.println(gyro);
+    //Serial.print("Y_acc : "); Serial.println(Y_acc);
+    //float angle = updateFilter(angle);
+    PosServo_Y = updatePid(angle_req, angle); 
+    ServoMot_Y(PosServo_Y);
+    Serial.print("angle : "); 
+    Serial.println(angle);
+    Serial.print("PosServo_Y : "); 
+    Serial.println(PosServo_Y);
+    Serial.println(" ");
+    i = millis();
+    i = i - lastmillis;
+  }
+  lastmillis = i;
+}
+/*float updateFilter(float angle) {
+ float gyro = GyX / 2000;
+ float dt = (millis() - last_time) / 1000;
+ float Y_acc = (AcY / 16384)* 90;
+ return float ((0.98)*(angle + gyro * dt) + (0.02)*(Y_acc));
+ Serial.print("Y_acc : "); Serial.println(Y_acc);
+ }
+ */
+float updatePid(int angle_req, float angle) {
+  error = angle_req - angle;
+  integrated_error += error * delta_time;
+  pidTerm = K * ((Kp * error) + (Ki * integrated_error) + (Kd * (error - last_error) / delta_time));
+  last_error = error;
+  last_time = time;
+  angle_PID = angle_req - pidTerm;
+  Serial.print("errror : "); 
+  Serial.println(error);
+  Serial.print("integratederrror : "); 
+  Serial.println(integrated_error);
+  Serial.print("angle_PID : "); 
+  Serial.println(angle_PID);
+  return (float)(((angle_PID - (-90)) * (outServo_max - outServo_min) / (float)(90 - (-90)) + outServo_min));    //((angle_PID - angle_min) * (outServo_max - outServo_min) / (angle_max)
+}
+void ServoMot_Y(float pos_servo) {
+  t = (560 + (pos_servo * (1840 / 180)));    // per il periodo del servo il t_min = 560 ( pos per il servo 0), il t_max = 2400 (pos per il servo 180), il dt = 1840; posizioni intermedie calcolate con la formulea
+  Serial.print("t : "); 
+  Serial.println(t);
+  Serial.print("pos_servo : "); 
+  Serial.println(pos_servo);
+  digitalWrite(servo_pin, HIGH);
+  delayMicroseconds(t); //
+  digitalWrite(servo_pin, LOW);
+  delayMicroseconds(20000 - t);
+}
